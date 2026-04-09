@@ -23,6 +23,10 @@ async function getAccessToken() {
 // CREATE ORDER
 // Currency: AUD — Australia only
 // Shipping starts at 0 — callback populates real amount once address is known
+//
+// NOTE: return_url is where PayPal redirects after "Complete Purchase" is clicked.
+// This happens regardless of whether the address is supported or not.
+// We enforce the postcode check at /return before capturing payment.
 // ─────────────────────────────────────────────────────────────────────────────
 async function createOrder(callbackUrl, returnUrl, cancelUrl) {
   const token = await getAccessToken();
