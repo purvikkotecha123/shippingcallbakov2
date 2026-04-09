@@ -8,10 +8,14 @@ require('dotenv').config();
 const REQUIRED_ENV = ['PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'BASE_URL'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length > 0) {
-  console.error('❌ Missing env vars:', missing.join(', '));
+  console.error('❌ Missing required environment variables:', missing.join(', '));
+  console.error('   Set these in Render → your service → Environment');
   process.exit(1);
 }
-console.log('✅ Env loaded — BASE_URL:', process.env.BASE_URL);
+console.log('✅ Environment variables loaded');
+console.log('   BASE_URL:', process.env.BASE_URL);
+console.log('   CLIENT_ID set:', !!process.env.PAYPAL_CLIENT_ID);
+console.log('   CLIENT_SECRET set:', !!process.env.PAYPAL_CLIENT_SECRET);
 
 const express = require('express');
 const { createOrder, getOrder, captureOrder } = require('./paypal');
@@ -22,348 +26,273 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use((req, res, next) => { res.setHeader('bypass-tunnel-reminder', 'true'); next(); });
+
+// Render bypass
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  res.setHeader('bypass-tunnel-reminder', 'true');
+  next();
+});
+
+// Request logger — logs every hit including the /return redirect from PayPal
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} query=${JSON.stringify(req.query)}`);
   next();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HOME PAGE
-// Uses PayPal JS SDK with onShippingAddressChange callback.
-//
-// WHY JS SDK instead of pure server-side redirect?
-//   With the Orders v2 server-side callback flow (redirect mode), PayPal shows
-//   the 422 error banner but does NOT redirect the buyer when they click
-//   "Complete Purchase" on an invalid address — the button just does nothing.
-//
-//   The JS SDK popup flow solves this properly:
-//     - onShippingAddressChange fires when buyer changes address in the popup
-//     - We call our /api/shipping-options to check the postcode
-//     - If unsupported → we call actions.reject() which shows a proper error
-//       and DISABLES the pay button inside the popup
-//     - If supported → we PATCH the order with new amounts and call actions.resolve()
+// SHARED HTML WRAPPER
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => {
-  const clientId = process.env.PAYPAL_CLIENT_ID;
-  res.send(`<!DOCTYPE html>
+const PAGE = (title, body) => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AU Shipping Demo</title>
+  <title>${title}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body   { font-family: -apple-system, Arial, sans-serif; max-width: 640px;
-             margin: 60px auto; padding: 0 20px; color: #333; }
-    h1     { font-size: 1.3em; }
-    .card  { border: 1px solid #ddd; padding: 24px; border-radius: 10px; margin-bottom: 20px; }
-    .price { font-size: 1.6em; font-weight: 700; }
-    .note  { font-size: 0.85em; color: #777; margin-top: 6px; line-height: 1.6; }
-    .info  { background: #f0f7ff; border: 1px solid #b3d4f5; padding: 14px 18px;
-             border-radius: 8px; font-size: 0.84em; margin-top: 16px; line-height: 2; }
-    .ok    { color: #1a7340; font-weight: 600; }
-    .no    { color: #c0392b; font-weight: 600; }
-    .tag   { display:inline-block; background:#eaf3fb; color:#0070ba;
-             font-size:0.75em; padding:2px 8px; border-radius:20px; font-weight:600; margin-left:6px; }
-    ul     { margin: 4px 0; padding-left: 20px; line-height: 2; }
-    #paypal-button-container { margin-top: 24px; }
-    #status { margin-top: 12px; font-size: 0.85em; color: #555; min-height: 20px; }
+    body    { font-family: -apple-system, Arial, sans-serif; max-width: 640px;
+              margin: 60px auto; padding: 0 20px; color: #333; }
+    h1      { font-size: 1.3em; margin-top: 0; }
+    .card   { border: 1px solid #ddd; padding: 24px; border-radius: 10px; margin-bottom: 20px; }
+    .price  { font-size: 1.6em; font-weight: 700; color: #111; }
+    .note   { font-size: 0.85em; color: #777; margin-top: 6px; line-height: 1.6; }
+    .btn    { display: inline-block; margin-top: 20px; padding: 13px 30px;
+              background: #0070ba; color: #fff; border-radius: 6px;
+              text-decoration: none; font-size: 1em; font-weight: 700; }
+    .btn:hover { background: #005ea6; }
+    .info   { background: #f0f7ff; border: 1px solid #b3d4f5; padding: 16px 18px;
+              border-radius: 8px; font-size: 0.85em; margin-top: 18px; line-height: 2; }
+    .ok     { color: #1a7340; font-weight: 600; }
+    .no     { color: #c0392b; font-weight: 600; }
+    .success { background: #e6f9ee; border: 1px solid #27ae60; padding: 24px; border-radius: 10px; }
+    .success h1 { color: #1a7340; }
+    .error  { background: #fdf0ef; border: 1px solid #e74c3c; padding: 24px; border-radius: 10px; }
+    .error h1 { color: #c0392b; }
+    .row    { margin: 10px 0; }
+    code    { background: #f0f0f0; padding: 2px 7px; border-radius: 4px; font-size: 0.9em; }
+    .back   { display: inline-block; margin-top: 18px; color: #0070ba; text-decoration: none; }
+    .tag    { display:inline-block; background:#eaf3fb; color:#0070ba;
+              font-size:0.75em; padding:2px 8px; border-radius:20px; font-weight:600; margin-left:6px; }
+    ul { margin: 6px 0; padding-left: 20px; line-height: 2; }
   </style>
 </head>
-<body>
-  <h1>🛒 PayPal Orders v2 — Shipping Callback Demo <span class="tag">Sandbox</span></h1>
+<body>${body}</body>
+</html>`;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.send(PAGE('AU Shipping Demo', `
+  <h1>🛒 PayPal Orders v2 — Shipping Callback Demo <span class="tag">Sandbox</span></h1>
   <div class="card">
     <h2 style="margin-top:0">Widget Pro 🇦🇺</h2>
     <div class="price">AUD $20.00 <span style="font-size:0.5em;color:#777">+ shipping &amp; GST</span></div>
     <p class="note">
-      We ship to <strong>Australia only</strong>. Change your shipping address
-      inside the PayPal popup — invalid postcodes disable the pay button immediately.
+      We ship to <strong>Australia only</strong>. When you change your shipping address
+      on the PayPal review page, the server checks your postcode in real time.
     </p>
-
+    <a class="btn" href="/checkout">Pay with PayPal</a>
     <div class="info">
       <strong>Delivery coverage:</strong><br>
+      <span class="ok">✅ Supported country:</span> Australia (AU) only<br>
       <span class="ok">✅ Supported postcode:</span> <strong>3000</strong> (Melbourne CBD)<br>
-      <span class="no">❌ All other AU postcodes:</span> Pay button disabled, error shown<br>
-      <span class="no">❌ Other countries:</span> Pay button disabled, error shown
+      <span class="no">❌ Other AU postcodes:</span>
+        PayPal shows <em>"Your order can't be shipped to this postcode"</em><br>
+      <span class="no">❌ Other countries:</span>
+        PayPal shows <em>"Your order can't be shipped to this country"</em>
       <br><br>
       <strong>Shipping options for postcode 3000:</strong>
       <ul>
-        <li>Australia Post Standard (3-5 days) — AUD $8.00</li>
-        <li>Australia Post Express (1-2 days) — AUD $15.00</li>
+        <li>Australia Post Standard (3-5 business days) — AUD $8.00</li>
+        <li>Australia Post Express (1-2 business days) — AUD $15.00</li>
       </ul>
     </div>
-
-    <!-- PayPal JS SDK renders the button here -->
-    <div id="paypal-button-container"></div>
-    <div id="status"></div>
   </div>
-
-  <!-- PayPal JS SDK — currency=AUD, components=buttons -->
-  <script src="https://www.paypal.com/sdk/js?client-id=${clientId}&currency=AUD&components=buttons"></script>
-  <script>
-    const BASE_URL = '${process.env.BASE_URL}';
-
-    function setStatus(msg, isError) {
-      const el = document.getElementById('status');
-      el.textContent = msg;
-      el.style.color = isError ? '#c0392b' : '#555';
-    }
-
-    paypal.Buttons({
-      // ── Step 1: Create order on your server ──────────────────────────────
-      createOrder: async () => {
-        setStatus('Creating order...');
-        const res  = await fetch('/api/create-order', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to create order');
-        setStatus('Order created — opening PayPal...');
-        return data.orderId;
-      },
-
-      // ── Step 2: Buyer changes shipping address in PayPal popup ────────────
-      // This fires on initial load AND every time address changes.
-      // actions.reject() → disables pay button + shows error in popup
-      // actions.resolve() → enables pay button
-      onShippingAddressChange: async (data, actions) => {
-        const zip     = data.shippingAddress?.postalCode   || '';
-        const country = data.shippingAddress?.countryCode  || '';
-        const state   = data.shippingAddress?.state        || '';
-
-        console.log('onShippingAddressChange:', { zip, country, state });
-        setStatus('Checking delivery for postcode ' + zip + '...');
-
-        try {
-          const res = await fetch('/api/shipping-options', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({
-              orderId: data.orderID,
-              zip, country, state,
-            }),
-          });
-
-          const result = await res.json();
-
-          if (!res.ok || !result.supported) {
-            // Postcode not supported — reject disables the pay button
-            setStatus('❌ ' + (result.message || 'Delivery not available for this postcode'), true);
-            return actions.reject();
-          }
-
-          setStatus('✅ Delivery available — shipping options updated');
-          return actions.resolve();
-        } catch (err) {
-          console.error('Shipping check error:', err);
-          setStatus('Error checking delivery. Please try again.', true);
-          return actions.reject();
-        }
-      },
-
-      // ── Step 3: Buyer approves — capture on your server ──────────────────
-      onApprove: async (data) => {
-        setStatus('Processing payment...');
-        const res    = await fetch('/api/capture-order', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ orderId: data.orderID }),
-        });
-        const result = await res.json();
-        if (!res.ok) {
-          setStatus('❌ Payment failed: ' + (result.error || 'Unknown error'), true);
-          return;
-        }
-        // Redirect to success page
-        window.location.href = '/success?orderId=' + data.orderID
-          + '&captureId=' + result.captureId
-          + '&amount=' + result.amount
-          + '&zip=' + result.zip;
-      },
-
-      onError: (err) => {
-        console.error('PayPal error:', err);
-        setStatus('❌ PayPal error: ' + err, true);
-      },
-
-      onCancel: () => {
-        setStatus('Payment cancelled.');
-      },
-
-    }).render('#paypal-button-container');
-  </script>
-</body>
-</html>`);
+  `));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API: Create Order
+// STEP 1 — Create Order → redirect to PayPal
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/create-order', async (req, res) => {
+app.get('/checkout', async (req, res) => {
+  const base = process.env.BASE_URL;
   try {
-    const { orderId } = await createOrder();
-    console.log('[API] Order created:', orderId);
-    res.json({ orderId });
+    const { orderId, approveLink } = await createOrder(
+      `${base}/shipping-callback`,
+      `${base}/return`,
+      `${base}/cancel`
+    );
+    console.log(`[Checkout] Order: ${orderId}`);
+    console.log(`[Checkout] Approve link: ${approveLink}`);
+    res.redirect(approveLink);
   } catch (err) {
-    console.error('[API] Create order error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    console.error('[Checkout] ERROR:', err.response?.data || err.message);
+    res.status(500).send(PAGE('Error', `
+      <div class="error">
+        <h1>⚠️ Error creating order</h1>
+        <p>Check your PayPal credentials in Render environment variables.</p>
+        <pre style="font-size:0.8em;overflow:auto">${JSON.stringify(err.response?.data || err.message, null, 2)}</pre>
+        <a class="back" href="/">← Back</a>
+      </div>
+    `));
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API: Check shipping options for a postcode + PATCH order with new amounts
+// STEP 2 — Shipping Callback (PayPal → your server)
 //
-// Called by onShippingAddressChange in the JS SDK.
-// Returns { supported: true/false, message, ... }
-// If supported, also PATCHes the order with the correct shipping amount.
+// PayPal POSTs here when the review page loads and when address changes.
+// HTTP 200 + shipping options → postcode supported
+// HTTP 422 + COUNTRY_ERROR   → not AU
+// HTTP 422 + ZIP_ERROR       → AU but not postcode 3000
+//
+// The 422 shows an error banner on the PayPal page.
+// PayPal will still redirect to return_url when buyer clicks Complete Purchase.
+// Postcode is re-checked at /return before capture.
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/shipping-options', async (req, res) => {
-  const { orderId, zip, country, state } = req.body;
+app.post('/shipping-callback', (req, res) => {
+  const body        = req.body;
+  const orderId     = body.id;
+  const address     = body.shipping_address || {};
+  const selectedOpt = body.shipping_option;
+  const referenceId = body.purchase_units?.[0]?.reference_id || 'default';
 
-  console.log('\n📦 Shipping check:', { orderId, zip, country, state });
+  console.log('\n🔔 Shipping Callback');
+  console.log('   Order  :', orderId);
+  console.log('   Event  :', selectedOpt ? 'SHIPPING_OPTIONS' : 'SHIPPING_ADDRESS');
+  console.log('   Address:', JSON.stringify(address));
 
-  const result = calculateShipping({
-    country_code: country,
-    admin_area_1: state,
-    postal_code:  zip,
-  });
+  const result   = calculateShipping(address);
+  const response = buildCallbackResponse(result, orderId, referenceId);
 
-  if (!result.supported) {
-    const msg = country.toUpperCase() !== 'AU'
-      ? 'We only ship to Australia.'
-      : `We don't deliver to postcode ${zip}. Only postcode 3000 (Melbourne CBD) is supported.`;
-
-    console.log('❌ Not supported:', msg);
-    return res.status(422).json({ supported: false, message: msg });
+  if (result.supported) {
+    console.log(`   → 200  AUD $${result.orderTotal} | ${result.options.length} options`);
+    result.options.forEach(o =>
+      console.log(`      [${o.selected ? '●' : '○'}] ${o.label}  AUD $${o.amount}`)
+    );
+  } else {
+    console.log(`   → 422  ${result.errorIssue} (zip=${result.zip} country=${result.country})`);
   }
 
-  // Supported — PATCH the order with correct amounts
-  try {
-    await patchOrder(orderId, result);
-    console.log('✅ Order patched with shipping AUD $' + result.shippingAmount);
-    res.json({
-      supported: true,
-      options:   result.options,
-      total:     result.orderTotal,
-    });
-  } catch (err) {
-    console.error('[API] PATCH error:', err.response?.data || err.message);
-    res.status(500).json({ supported: false, message: 'Error updating order' });
-  }
+  res.status(response.status).json(response.body);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API: Capture Order
+// STEP 3 — Return URL
+//
+// PayPal redirects here after "Complete Purchase" — for both valid and
+// invalid postcodes. We check the postcode here before capturing.
+//
+// PayPal sends orderId as query param 'token'.
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/capture-order', async (req, res) => {
-  const { orderId } = req.body;
+app.get('/return', async (req, res) => {
+  console.log('\n[Return] hit — query params:', JSON.stringify(req.query));
+
+  // PayPal sends the order ID as 'token'
+  const orderId = req.query.token;
+
+  if (!orderId) {
+    console.log('[Return] ❌ No token in query params');
+    return res.status(400).send(PAGE('Error', `
+      <div class="error">
+        <h1>⚠️ Missing order token</h1>
+        <p>PayPal did not return an order token. Please try again.</p>
+        <a class="back" href="/">← Back</a>
+      </div>`));
+  }
 
   try {
-    // Final postcode check before capture
-    const order   = await getOrder(orderId);
-    const address = order.purchase_units?.[0]?.shipping?.address || {};
-    const zip     = address.postal_code  || '';
-    const country = address.country_code || '';
-
-    if (!isZipServiceable(zip, country)) {
-      console.log('🚫 Capture blocked — zip:', zip);
-      return res.status(422).json({
-        error: `Delivery not available for postcode ${zip}`,
-      });
-    }
-
-    const capture     = await captureOrder(orderId);
-    const captureData = capture.purchase_units?.[0]?.payments?.captures?.[0];
+    const order       = await getOrder(orderId);
+    const address     = order.purchase_units?.[0]?.shipping?.address || {};
+    const zip         = address.postal_code  || '';
+    const country     = address.country_code || '';
+    const city        = address.admin_area_2 || '';
+    const state       = address.admin_area_1 || '';
     const shippingAmt = order.purchase_units?.[0]?.amount?.breakdown?.shipping?.value || '0.00';
 
-    res.json({
-      captureId: captureData?.id,
-      amount:    captureData?.amount?.value,
-      currency:  captureData?.amount?.currency_code,
-      zip,
-      shipping:  shippingAmt,
-    });
+    console.log(`[Return] Order: ${orderId} | status: ${order.status}`);
+    console.log(`[Return] Address: ${city} ${state} ${zip} ${country}`);
+    console.log(`[Return] Shipping: AUD $${shippingAmt}`);
+
+    // ── SERVER-SIDE POSTCODE ENFORCEMENT ─────────────────────────────────────
+    // The 422 callback is informational — PayPal can still redirect here.
+    // We NEVER capture payment for an unsupported postcode.
+    if (!isZipServiceable(zip, country)) {
+      console.log(`🚫 [Return] BLOCKED — ${country} postcode ${zip} not serviceable`);
+
+      const isWrongCountry = country.toUpperCase() !== 'AU';
+      const reason = isWrongCountry
+        ? `We only ship to <strong>Australia</strong>. Your address is in <strong>${country}</strong>.`
+        : `We only deliver to postcode <strong>3000</strong> (Melbourne CBD).<br>
+           Your postcode <strong>${zip}</strong> is outside our delivery area.`;
+
+      return res.status(400).send(PAGE('Delivery Not Available', `
+        <div class="error">
+          <h1>🚫 Delivery Not Available</h1>
+          <p>${reason}</p>
+          <br>
+          <p><strong>Your payment has not been charged.</strong></p>
+          <p class="note">
+            Please go back and use a supported delivery address.<br>
+            We currently deliver to: <strong>Australia, postcode 3000 (Melbourne CBD) only</strong>.
+          </p>
+          <a class="btn" href="/">← Back to shop</a>
+        </div>
+      `));
+    }
+
+    // Postcode is valid — capture
+    console.log(`[Return] ✅ Postcode ${zip} valid — capturing payment`);
+    const capture     = await captureOrder(orderId);
+    const captureData = capture.purchase_units?.[0]?.payments?.captures?.[0];
+    const buyerEmail  = capture.payment_source?.paypal?.email_address || '';
+
+    res.send(PAGE('Payment Successful', `
+      <div class="success">
+        <h1>✅ Payment Successful!</h1>
+        <div class="row"><strong>Order ID:</strong> <code>${orderId}</code></div>
+        <div class="row"><strong>Capture ID:</strong> <code>${captureData?.id || 'N/A'}</code></div>
+        <div class="row"><strong>Status:</strong> ${captureData?.status || 'N/A'}</div>
+        <div class="row"><strong>Amount charged:</strong> <strong>AUD $${captureData?.amount?.value}</strong></div>
+        <div class="row"><strong>Shipping:</strong> AUD $${shippingAmt}</div>
+        <div class="row"><strong>Delivered to:</strong>
+          ${city}${state ? ', ' + state : ''} <strong>${zip}</strong>, ${country}</div>
+        ${buyerEmail ? `<div class="row"><strong>Buyer:</strong> ${buyerEmail}</div>` : ''}
+      </div>
+      <a class="back" href="/">← Back to shop</a>
+    `));
   } catch (err) {
-    console.error('[API] Capture error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.response?.data?.message || err.message });
+    console.error('[Return] ERROR:', err.response?.data || err.message);
+    res.status(500).send(PAGE('Error', `
+      <div class="error">
+        <h1>⚠️ Something went wrong</h1>
+        <pre style="font-size:0.8em;overflow:auto">${JSON.stringify(err.response?.data || err.message, null, 2)}</pre>
+        <a class="back" href="/">← Back</a>
+      </div>
+    `));
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATCH ORDER — update amounts when shipping address changes
+// CANCEL
 // ─────────────────────────────────────────────────────────────────────────────
-async function patchOrder(orderId, shippingResult) {
-  const axios = require('axios');
-  const token = await require('./paypal').getAccessToken();
-
-  const patches = [
-    {
-      op:    'replace',
-      path:  '/purchase_units/@reference_id==\'default\'/amount',
-      value: {
-        currency_code: 'AUD',
-        value:         shippingResult.orderTotal,
-        breakdown: {
-          item_total: { currency_code: 'AUD', value: shippingResult.itemTotal      },
-          shipping:   { currency_code: 'AUD', value: shippingResult.shippingAmount },
-          tax_total:  { currency_code: 'AUD', value: shippingResult.taxTotal       },
-        },
-      },
-    },
-  ];
-
-  await axios.patch(
-    `https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`,
-    patches,
-    {
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-    }
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SUCCESS PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-app.get('/success', (req, res) => {
-  const { orderId, captureId, amount, zip } = req.query;
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Payment Successful</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; }
-    .success { background: #e6f9ee; border: 1px solid #27ae60; padding: 24px; border-radius: 10px; }
-    .success h1 { color: #1a7340; margin-top: 0; }
-    .row { margin: 10px 0; }
-    code { background: #f0f0f0; padding: 2px 7px; border-radius: 4px; }
-    a { color: #0070ba; }
-  </style>
-</head>
-<body>
-  <div class="success">
-    <h1>✅ Payment Successful!</h1>
-    <div class="row"><strong>Order ID:</strong> <code>${orderId}</code></div>
-    <div class="row"><strong>Capture ID:</strong> <code>${captureId}</code></div>
-    <div class="row"><strong>Amount:</strong> AUD $${amount}</div>
-    <div class="row"><strong>Delivered to postcode:</strong> ${zip}</div>
-  </div>
-  <p><a href="/">← Back to shop</a></p>
-</body>
-</html>`);
+app.get('/cancel', (req, res) => {
+  res.send(PAGE('Cancelled', `
+    <div class="card">
+      <h1>❌ Payment Cancelled</h1>
+      <p>No payment was taken.</p>
+      <a class="btn" href="/">← Back to shop</a>
+    </div>
+  `));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START
 // ─────────────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 AU Shipping Demo (JS SDK mode)`);
-  console.log(`   URL     : ${process.env.BASE_URL || `http://localhost:${PORT}`}`);
-  console.log(`   Coverage: AU postcode 3000 only`);
-  console.log(`\n   Note: Using JS SDK onShippingAddressChange instead of`);
-  console.log(`   server-side redirect callback — this properly disables`);
-  console.log(`   the pay button for unsupported postcodes.\n`);
+  console.log(`\n🚀 AU Shipping Demo`);
+  console.log(`   URL     : ${process.env.BASE_URL}`);
+  console.log(`   Callback: ${process.env.BASE_URL}/shipping-callback`);
+  console.log(`   Coverage: AU postcode 3000 only\n`);
 });
