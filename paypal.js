@@ -21,21 +21,39 @@ async function getAccessToken() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE ORDER
-// No server-side callback config needed — JS SDK handles address changes
-// via onShippingAddressChange which calls /api/shipping-options
+// Currency: AUD — Australia only
+// Shipping starts at 0 — callback populates real amount once address is known
+// return_url is where PayPal redirects after "Complete Purchase" is clicked,
+// regardless of whether the address is supported or not.
+// We enforce the postcode check at /return before capturing payment.
 // ─────────────────────────────────────────────────────────────────────────────
-async function createOrder() {
+async function createOrder(callbackUrl, returnUrl, cancelUrl) {
   const token = await getAccessToken();
 
   const body = {
     intent: 'CAPTURE',
+    payment_source: {
+      paypal: {
+        experience_context: {
+          user_action:         'PAY_NOW',
+          shipping_preference: 'GET_FROM_FILE',
+          return_url:          returnUrl,
+          cancel_url:          cancelUrl,
+          order_update_callback_config: {
+            callback_url:    callbackUrl,
+            callback_events: ['SHIPPING_ADDRESS', 'SHIPPING_OPTIONS'],
+          },
+        },
+      },
+    },
     purchase_units: [
       {
         reference_id: 'default',
-        description:  'Widget Pro',
+        description:  'Widget Pro order',
         items: [
           {
             name:        'Widget Pro',
+            description: 'Premium widget',
             sku:         'SKU-001',
             unit_amount: { currency_code: 'AUD', value: '20.00' },
             quantity:    '1',
@@ -55,6 +73,9 @@ async function createOrder() {
     ],
   };
 
+  console.log('\n─── Create Order ───');
+  console.log(JSON.stringify(body, null, 2));
+
   const res = await axios.post(`${BASE_URL}/v2/checkout/orders`, body, {
     headers: {
       'Content-Type':  'application/json',
@@ -62,8 +83,13 @@ async function createOrder() {
     },
   });
 
-  console.log('[PayPal] Order created:', res.data.id);
-  return { orderId: res.data.id };
+  console.log('\n─── Create Order Response ───');
+  console.log(JSON.stringify(res.data, null, 2));
+
+  const approveLink = res.data.links.find(l => l.rel === 'payer-action')?.href
+                   || res.data.links.find(l => l.rel === 'approve')?.href;
+
+  return { orderId: res.data.id, approveLink };
 }
 
 async function getOrder(orderId) {
@@ -76,7 +102,8 @@ async function getOrder(orderId) {
 
 async function captureOrder(orderId) {
   const token = await getAccessToken();
-  const res   = await axios.post(
+  console.log(`\n─── Capture Order: ${orderId} ───`);
+  const res = await axios.post(
     `${BASE_URL}/v2/checkout/orders/${orderId}/capture`,
     {},
     {
@@ -86,9 +113,9 @@ async function captureOrder(orderId) {
       },
     }
   );
-  console.log('[PayPal] Capture:', res.data.id, res.data.status);
+  console.log('\n─── Capture Response ───');
+  console.log(JSON.stringify(res.data, null, 2));
   return res.data;
 }
 
-// exported so patchOrder in server.js can reuse it
 module.exports = { createOrder, getOrder, captureOrder, getAccessToken };
