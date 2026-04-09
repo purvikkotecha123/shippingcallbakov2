@@ -1,12 +1,7 @@
 'use strict';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELIVERY CONFIGURATION
-// Only Australia (AU) is supported.
-// Only postcode 3000 (Melbourne CBD) is valid.
-// ─────────────────────────────────────────────────────────────────────────────
-const SUPPORTED_COUNTRY  = 'AU';
-const SERVICEABLE_ZIPS   = new Set(['3000']);
+const SUPPORTED_COUNTRY = 'AU';
+const SERVICEABLE_ZIPS  = new Set(['3000']);
 
 function isZipServiceable(zip, country) {
   if (!country || country.toUpperCase() !== SUPPORTED_COUNTRY) return false;
@@ -16,30 +11,19 @@ function isZipServiceable(zip, country) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CALCULATE SHIPPING
-//
-// Orders v2 callback sends:
-//   shipping_address.country_code  e.g. "AU"
-//   shipping_address.postal_code   e.g. "3000"
-//   shipping_address.admin_area_1  state e.g. "VIC"
-//
-// Returns:
-//   { supported: false, errorIssue, zip, country }
-//   { supported: true,  options, itemTotal, shippingAmount, taxTotal, orderTotal, zip, country }
 // ─────────────────────────────────────────────────────────────────────────────
 function calculateShipping(shippingAddress) {
   const country = (shippingAddress.country_code || '').toUpperCase();
-  const zip     = (shippingAddress.postal_code  || '').trim();
   const state   = (shippingAddress.admin_area_1 || '').toUpperCase();
+  const zip     = (shippingAddress.postal_code  || '').trim();
 
   console.log(`\n📦 Delivery check: zip=${zip} state=${state} country=${country}`);
 
-  // Step 1 — country check
   if (country !== SUPPORTED_COUNTRY) {
     console.log(`❌ Country not supported: ${country}`);
     return { supported: false, errorIssue: 'COUNTRY_ERROR', zip, country };
   }
 
-  // Step 2 — postcode check
   if (!SERVICEABLE_ZIPS.has(zip)) {
     console.log(`❌ Postcode not supported: ${zip}`);
     return { supported: false, errorIssue: 'ZIP_ERROR', zip, country };
@@ -48,11 +32,9 @@ function calculateShipping(shippingAddress) {
   console.log(`✅ Supported: AU postcode ${zip}`);
 
   const ITEM_TOTAL = '20.00';
-  const shipping   = '8.00';   // flat rate AU delivery
-  const tax        = '2.00';   // GST
-  const total      = (
-    parseFloat(ITEM_TOTAL) + parseFloat(shipping) + parseFloat(tax)
-  ).toFixed(2);
+  const shipping   = '8.00';
+  const tax        = '2.00';
+  const total      = (parseFloat(ITEM_TOTAL) + parseFloat(shipping) + parseFloat(tax)).toFixed(2);
 
   return {
     supported:      true,
@@ -63,20 +45,8 @@ function calculateShipping(shippingAddress) {
     taxTotal:       tax,
     orderTotal:     total,
     options: [
-      {
-        id:       '1',
-        label:    'Australia Post Standard (3-5 business days)',
-        amount:   '8.00',
-        selected: true,
-        type:     'SHIPPING',
-      },
-      {
-        id:       '2',
-        label:    'Australia Post Express (1-2 business days)',
-        amount:   '15.00',
-        selected: false,
-        type:     'SHIPPING',
-      },
+      { id: '1', label: 'Australia Post Standard (3-5 business days)', amount: '8.00',  selected: true,  type: 'SHIPPING' },
+      { id: '2', label: 'Australia Post Express (1-2 business days)',  amount: '15.00', selected: false, type: 'SHIPPING' },
     ],
   };
 }
@@ -84,18 +54,41 @@ function calculateShipping(shippingAddress) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BUILD CALLBACK RESPONSE
 //
-// HTTP 200 → address OK, return updated amounts + shipping options
-// HTTP 422 → not supported, PayPal shows error on review page:
-//   COUNTRY_ERROR → "Your order can't be shipped to this country."
-//   ZIP_ERROR     → "Your order can't be shipped to this zip."
+// KEY FINDING from live testing:
+//   HTTP 422 → PayPal shows error banner BUT locks the page entirely.
+//              "Complete Purchase" does nothing — return_url is never called.
+//
+//   HTTP 200 with empty shipping_options array → PayPal shows
+//              "No shipping options available" and KEEPS the button active,
+//              so the buyer IS redirected to return_url where we block capture.
+//
+// This means we must ALWAYS return 200, and enforce the real block at /return.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildCallbackResponse(result, orderId, referenceId) {
   if (!result.supported) {
+    // Return 200 with empty shipping options instead of 422
+    // This keeps the redirect working so /return can show a proper error page
     return {
-      status: 422,
+      status: 200,
       body: {
-        name:    'UNPROCESSABLE_ENTITY',
-        details: [{ issue: result.errorIssue }],
+        id: orderId,
+        purchase_units: [
+          {
+            reference_id: referenceId || 'default',
+            amount: {
+              currency_code: 'AUD',
+              value:         '20.00',
+              breakdown: {
+                item_total: { currency_code: 'AUD', value: '20.00' },
+                shipping:   { currency_code: 'AUD', value: '0.00'  },
+                tax_total:  { currency_code: 'AUD', value: '0.00'  },
+              },
+            },
+            // Empty array → PayPal shows "No shipping options available"
+            // but keeps "Complete Purchase" active so return_url is reached
+            shipping_options: [],
+          },
+        ],
       },
     };
   }
