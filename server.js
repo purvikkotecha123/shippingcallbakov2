@@ -172,7 +172,8 @@ app.post('/shipping-callback', (req, res) => {
       console.log(`      [${o.selected ? '●' : '○'}] ${o.label}  AUD $${o.amount}`)
     );
   } else {
-    console.log(`   → 422  ${result.errorIssue} (zip=${result.zip} country=${result.country})`);
+    console.log(`   → 200 (empty options) — ${result.errorIssue} (zip=${result.zip} country=${result.country})`);
+    console.log(`   PayPal shows no options — /return will block capture`);
   }
 
   res.status(response.status).json(response.body);
