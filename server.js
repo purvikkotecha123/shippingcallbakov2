@@ -25,7 +25,7 @@ app.use((req, res, next) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHARED HTML HELPERS
+// SHARED HTML WRAPPER
 // ─────────────────────────────────────────────────────────────────────────────
 const PAGE = (title, body) => `<!DOCTYPE html>
 <html lang="en">
@@ -35,22 +35,20 @@ const PAGE = (title, body) => `<!DOCTYPE html>
   <title>${title}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body   { font-family: -apple-system, Arial, sans-serif; max-width: 660px;
+    body   { font-family: -apple-system, Arial, sans-serif; max-width: 640px;
              margin: 60px auto; padding: 0 20px; color: #333; }
     h1     { font-size: 1.3em; margin-top: 0; }
     .card  { border: 1px solid #ddd; padding: 24px; border-radius: 10px; margin-bottom: 20px; }
     .price { font-size: 1.6em; font-weight: 700; color: #111; }
-    .note  { font-size: 0.85em; color: #777; margin-top: 6px; line-height: 1.5; }
+    .note  { font-size: 0.85em; color: #777; margin-top: 6px; line-height: 1.6; }
     .btn   { display: inline-block; margin-top: 20px; padding: 13px 30px;
              background: #0070ba; color: #fff; border-radius: 6px;
              text-decoration: none; font-size: 1em; font-weight: 700; }
     .btn:hover { background: #005ea6; }
-    .zips  { background: #f8f8f8; border: 1px solid #eee; padding: 14px 18px;
-             border-radius: 8px; font-size: 0.84em; margin-top: 18px; line-height: 2; }
+    .info  { background: #f0f7ff; border: 1px solid #b3d4f5; padding: 16px 18px;
+             border-radius: 8px; font-size: 0.85em; margin-top: 18px; line-height: 2; }
     .ok    { color: #1a7340; font-weight: 600; }
     .no    { color: #c0392b; font-weight: 600; }
-    .diff  { background: #fff8e1; border: 1px solid #f9a825; padding: 14px 18px;
-             border-radius: 8px; font-size: 0.84em; margin-top: 16px; line-height: 1.8; }
     .success { background: #e6f9ee; border: 1px solid #27ae60; padding: 24px; border-radius: 10px; }
     .success h1 { color: #1a7340; }
     .error   { background: #fdf0ef; border: 1px solid #e74c3c; padding: 24px; border-radius: 10px; }
@@ -58,8 +56,9 @@ const PAGE = (title, body) => `<!DOCTYPE html>
     .row   { margin: 10px 0; }
     code   { background: #f0f0f0; padding: 2px 7px; border-radius: 4px; font-size: 0.9em; }
     .back  { display: inline-block; margin-top: 18px; color: #0070ba; text-decoration: none; }
-    .tag   { display: inline-block; background: #eaf3fb; color: #0070ba;
-             font-size: 0.75em; padding: 2px 8px; border-radius: 20px; font-weight: 600; margin-left: 6px; }
+    .tag   { display:inline-block; background:#eaf3fb; color:#0070ba;
+             font-size:0.75em; padding:2px 8px; border-radius:20px; font-weight:600; margin-left:6px; }
+    ul { margin: 6px 0; padding-left: 20px; line-height: 2; }
   </style>
 </head>
 <body>${body}</body>
@@ -69,44 +68,41 @@ const PAGE = (title, body) => `<!DOCTYPE html>
 // HOME PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.send(PAGE('Orders v2 Shipping Callback Demo', `
+  res.send(PAGE('AU Shipping Demo', `
   <h1>🛒 PayPal Orders v2 — Shipping Callback Demo <span class="tag">Sandbox</span></h1>
 
   <div class="card">
-    <h2 style="margin-top:0">Widget Pro</h2>
-    <div class="price">$20.00 <span style="font-size:0.55em;color:#777">+ shipping & tax</span></div>
+    <h2 style="margin-top:0">Widget Pro 🇦🇺</h2>
+    <div class="price">AUD $20.00 <span style="font-size:0.5em;color:#777">+ shipping &amp; GST</span></div>
     <p class="note">
-      When you change your address on the PayPal review page, the server checks
-      whether your <strong>zip code is serviceable</strong> and responds with
-      shipping options in real time using the
-      <strong>Orders v2 server-side shipping callback API</strong>.
+      We ship <strong>to Australia only</strong>. When you change your shipping address
+      on the PayPal review page, the server checks your postcode in real time and shows
+      available delivery options — or an error if your postcode is not supported.
     </p>
     <a class="btn" href="/checkout">Pay with PayPal</a>
 
-    <div class="zips">
-      <strong>Test with these sandbox shipping addresses:</strong><br>
-      <span class="ok">✅ Supported zips:</span>
-      10001 (New York) &nbsp;·&nbsp; 90001 (Los Angeles) &nbsp;·&nbsp; 60601 (Chicago)
-      &nbsp;·&nbsp; 94102 (San Francisco) &nbsp;·&nbsp; 95101 (San Jose) &nbsp;·&nbsp; 98101 (Seattle)<br>
-      <span class="no">❌ Not supported:</span>
-      Any other US zip &nbsp;·&nbsp; e.g. 33101 (Miami), 70112 (New Orleans), 85001 (Phoenix)<br>
-      <span class="ok">✅ Supported countries:</span> US, GB, CA, AU<br>
-      <span class="no">❌ Not supported:</span> All other countries
-    </div>
+    <div class="info">
+      <strong>Delivery coverage:</strong><br>
+      <span class="ok">✅ Supported country:</span> Australia (AU) only<br>
+      <span class="ok">✅ Supported postcode:</span> <strong>3000</strong> (Melbourne CBD)<br>
+      <span class="no">❌ All other postcodes:</span>
+        PayPal shows <em>"Your order can't be shipped to this zip"</em><br>
+      <span class="no">❌ All other countries:</span>
+        PayPal shows <em>"Your order can't be shipped to this country"</em>
 
-    <div class="diff">
-      <strong>🆚 vs Legacy EC Instant Update API:</strong>
-      REST JSON instead of NVP key=value &nbsp;·&nbsp;
-      Client ID/Secret instead of API Username/Signature &nbsp;·&nbsp;
-      HTTP 422 + <code>ZIP_ERROR</code> to decline (not <code>NO_SHIPPING_OPTION_DETAILS=1</code>) &nbsp;·&nbsp;
-      Venmo supported &nbsp;·&nbsp; No <code>MAXAMT</code> hack needed
+      <br><br>
+      <strong>Shipping options for postcode 3000:</strong>
+      <ul>
+        <li>Australia Post Standard (3-5 business days) — AUD $8.00</li>
+        <li>Australia Post Express (1-2 business days) — AUD $15.00</li>
+      </ul>
     </div>
   </div>
   `));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1 — Create Order → redirect buyer to PayPal
+// STEP 1 — Create Order → redirect to PayPal
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/checkout', async (req, res) => {
   const base = process.env.BASE_URL;
@@ -116,7 +112,7 @@ app.get('/checkout', async (req, res) => {
       `${base}/return`,
       `${base}/cancel`
     );
-    console.log(`[Checkout] Order created: ${orderId}`);
+    console.log(`[Checkout] Order: ${orderId}`);
     res.redirect(approveLink);
   } catch (err) {
     console.error('[Checkout] ERROR:', err.response?.data || err.message);
@@ -125,26 +121,24 @@ app.get('/checkout', async (req, res) => {
         <h1>⚠️ Error creating order</h1>
         <p>Could not start checkout. Check your PayPal credentials in <code>.env</code>.</p>
         <pre style="font-size:0.8em;overflow:auto">${JSON.stringify(err.response?.data || err.message, null, 2)}</pre>
-        <a class="back" href="/">← Back to shop</a>
+        <a class="back" href="/">← Back</a>
       </div>
     `));
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2 — Server-side Shipping Callback (PayPal → your server)
+// STEP 2 — Shipping Callback (PayPal → your server)
 //
-// PayPal sends JSON POST with:
-//   id                — order ID
-//   shipping_address  — { country_code, admin_area_1, postal_code, admin_area_2 }
-//   shipping_option   — currently selected option (SHIPPING_OPTIONS event only)
-//   purchase_units    — current order state
+// PayPal POSTs JSON when buyer loads or changes their shipping address.
 //
-// Respond:
-//   HTTP 200 + updated purchase_units with amounts + shipping_options → address OK
-//   HTTP 422 + { name, details:[{issue}] }                           → not serviceable
-//     issue values: ZIP_ERROR | COUNTRY_ERROR | STATE_ERROR
-//     PayPal shows the matching error on the review page automatically
+// We check:
+//   1. country_code must be AU
+//   2. postal_code must be 3000
+//
+// HTTP 200 + shipping options → address supported
+// HTTP 422 + COUNTRY_ERROR   → wrong country (PayPal shows country error)
+// HTTP 422 + ZIP_ERROR       → wrong postcode (PayPal shows zip error)
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/shipping-callback', (req, res) => {
   const body        = req.body;
@@ -153,29 +147,28 @@ app.post('/shipping-callback', (req, res) => {
   const selectedOpt = body.shipping_option;
   const referenceId = body.purchase_units?.[0]?.reference_id || 'default';
 
-  console.log('\n🔔 Shipping Callback received');
+  console.log('\n🔔 Shipping Callback');
   console.log('   Order   :', orderId);
   console.log('   Event   :', selectedOpt ? 'SHIPPING_OPTIONS' : 'SHIPPING_ADDRESS');
   console.log('   Address :', JSON.stringify(address));
-  if (selectedOpt) console.log('   Option  :', JSON.stringify(selectedOpt));
 
   const result   = calculateShipping(address);
   const response = buildCallbackResponse(result, orderId, referenceId);
 
   if (result.supported) {
-    console.log(`   → 200  $${result.orderTotal} total, ${result.options.length} options`);
+    console.log(`   → 200  AUD $${result.orderTotal} (shipping $${result.shippingAmount} + tax $${result.taxTotal})`);
     result.options.forEach(o =>
-      console.log(`      [${o.selected ? '●' : '○'}] ${o.label}  $${o.amount}`)
+      console.log(`      [${o.selected ? '●' : '○'}] ${o.label}  AUD $${o.amount}`)
     );
   } else {
-    console.log(`   → 422  ${result.errorIssue} (zip=${result.zip} country=${result.country})`);
+    console.log(`   → 422  ${result.errorIssue}  zip=${result.zip} country=${result.country}`);
   }
 
   res.status(response.status).json(response.body);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 3 — Return URL: buyer approved → verify zip → capture
+// STEP 3 — Return URL: buyer approved → enforce postcode → capture
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/return', async (req, res) => {
   const { token: orderId } = req.query;
@@ -189,41 +182,43 @@ app.get('/return', async (req, res) => {
   try {
     const order       = await getOrder(orderId);
     const puShipping  = order.purchase_units?.[0]?.shipping;
-    const zip         = puShipping?.address?.postal_code   || '';
-    const country     = puShipping?.address?.country_code  || 'US';
-    const city        = puShipping?.address?.admin_area_2  || '';
-    const state       = puShipping?.address?.admin_area_1  || '';
+    const address     = puShipping?.address || {};
+    const zip         = address.postal_code  || '';
+    const country     = address.country_code || '';
+    const city        = address.admin_area_2 || '';
+    const state       = address.admin_area_1 || '';
     const shippingAmt = order.purchase_units?.[0]?.amount?.breakdown?.shipping?.value || '0.00';
-    const totalAmt    = order.purchase_units?.[0]?.amount?.value || '0.00';
 
-    console.log(`\n[Return] Order: ${orderId}  zip: ${zip}  shipping: $${shippingAmt}`);
+    console.log(`\n[Return] Order: ${orderId}  zip: ${zip}  country: ${country}`);
 
     // ── SERVER-SIDE ENFORCEMENT ───────────────────────────────────────────────
-    // The 422 callback is UX only — PayPal may still let the buyer proceed.
-    // This is the authoritative gate: we never capture if zip is unsupported.
+    // Always re-check postcode here — buyer may have bypassed the PayPal warning.
+    // Never capture payment for an unsupported address.
     if (!isZipServiceable(zip, country)) {
-      console.log(`🚫 BLOCKED: zip ${zip} not serviceable`);
+      console.log(`🚫 BLOCKED: ${country} postcode ${zip} — payment NOT captured`);
+
+      const isWrongCountry = country.toUpperCase() !== 'AU';
+      const reason = isWrongCountry
+        ? `We only ship to Australia. Your address is in <strong>${country}</strong>.`
+        : `We only deliver to postcode <strong>3000</strong> (Melbourne CBD). Your postcode is <strong>${zip}</strong>.`;
+
       return res.status(400).send(PAGE('Delivery Not Available', `
         <div class="error">
           <h1>🚫 Delivery Not Available</h1>
-          <p>
-            Sorry, we are unable to deliver to
-            <strong>${city}${state ? ', ' + state : ''} ${zip}, ${country}</strong>.
-          </p>
+          <p>${reason}</p>
           <p>Your payment has <strong>not</strong> been charged.</p>
           <p class="note">
-            Please go back and select a supported delivery address.<br>
-            Supported US zip codes include: 10001, 90001, 60601, 94102, 95101, 98101
+            Please go back and use a supported delivery address.<br>
+            We currently deliver to: <strong>Australia, postcode 3000 only</strong>.
           </p>
           <a class="btn" href="/">← Back to shop</a>
         </div>
       `));
     }
 
-    // Capture payment
-    const capture    = await captureOrder(orderId);
-    const puCapture  = capture.purchase_units?.[0];
-    const captureData = puCapture?.payments?.captures?.[0];
+    // Capture
+    const capture     = await captureOrder(orderId);
+    const captureData = capture.purchase_units?.[0]?.payments?.captures?.[0];
     const buyerEmail  = capture.payment_source?.paypal?.email_address || '';
 
     res.send(PAGE('Payment Successful', `
@@ -233,16 +228,17 @@ app.get('/return', async (req, res) => {
         <div class="row"><strong>Capture ID:</strong> <code>${captureData?.id || 'N/A'}</code></div>
         <div class="row"><strong>Status:</strong> ${captureData?.status || 'N/A'}</div>
         <div class="row"><strong>Amount charged:</strong>
-          <strong>$${captureData?.amount?.value}</strong> ${captureData?.amount?.currency_code}</div>
-        <div class="row"><strong>Shipping:</strong> $${shippingAmt}</div>
-        <div class="row"><strong>Delivered to:</strong> ${city}${state ? ', ' + state : ''} <strong>${zip}</strong>, ${country}</div>
+          <strong>AUD $${captureData?.amount?.value}</strong></div>
+        <div class="row"><strong>Shipping:</strong> AUD $${shippingAmt}</div>
+        <div class="row"><strong>Delivered to:</strong>
+          ${city}${state ? ', ' + state : ''} <strong>${zip}</strong>, ${country}</div>
         ${buyerEmail ? `<div class="row"><strong>Buyer:</strong> ${buyerEmail}</div>` : ''}
       </div>
       <a class="back" href="/">← Back to shop</a>
     `));
   } catch (err) {
     console.error('[Return] ERROR:', err.response?.data || err.message);
-    res.status(500).send(PAGE('Payment Failed', `
+    res.status(500).send(PAGE('Error', `
       <div class="error">
         <h1>⚠️ Payment Failed</h1>
         <pre style="font-size:0.8em;overflow:auto">${JSON.stringify(err.response?.data || err.message, null, 2)}</pre>
@@ -259,7 +255,7 @@ app.get('/cancel', (req, res) => {
   res.send(PAGE('Cancelled', `
     <div class="card">
       <h1>❌ Payment Cancelled</h1>
-      <p>You cancelled the PayPal checkout. No payment was taken.</p>
+      <p>No payment was taken.</p>
       <a class="btn" href="/">← Back to shop</a>
     </div>
   `));
@@ -269,13 +265,16 @@ app.get('/cancel', (req, res) => {
 // START
 // ─────────────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 Orders v2 Shipping Callback Demo`);
-  console.log(`   URL     : ${process.env.BASE_URL || `http://localhost:${PORT}`}`);
-  console.log(`   Callback: ${process.env.BASE_URL}/shipping-callback`);
-  console.log(`\n   Supported zips : 10001 90001 60601 94102 95101 98101`);
-  console.log(`   Unsupported    : all others → 422 ZIP_ERROR`);
-  console.log(`\n   Quick test:`);
+  console.log(`\n🚀 AU Shipping Callback Demo`);
+  console.log(`   URL      : ${process.env.BASE_URL || `http://localhost:${PORT}`}`);
+  console.log(`   Callback : ${process.env.BASE_URL}/shipping-callback`);
+  console.log(`   Coverage : Australia (AU) only — postcode 3000 only`);
+  console.log(`\n   Test supported postcode:`);
   console.log(`   curl -s -X POST http://localhost:${PORT}/shipping-callback \\`);
   console.log(`     -H 'Content-Type: application/json' \\`);
-  console.log(`     -d '{"id":"T1","shipping_address":{"country_code":"US","admin_area_1":"CA","postal_code":"95101"},"purchase_units":[{"reference_id":"default"}]}' | jq\n`);
+  console.log(`     -d '{"id":"T1","shipping_address":{"country_code":"AU","admin_area_1":"VIC","postal_code":"3000"},"purchase_units":[{"reference_id":"default"}]}' | jq`);
+  console.log(`\n   Test unsupported postcode:`);
+  console.log(`   curl -s -X POST http://localhost:${PORT}/shipping-callback \\`);
+  console.log(`     -H 'Content-Type: application/json' \\`);
+  console.log(`     -d '{"id":"T2","shipping_address":{"country_code":"AU","admin_area_1":"NSW","postal_code":"2000"},"purchase_units":[{"reference_id":"default"}]}' | jq\n`);
 });
