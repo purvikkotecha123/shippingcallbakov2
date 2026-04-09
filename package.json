@@ -1,0 +1,14 @@
+{
+  "name": "orders-v2-shipping-demo",
+  "version": "1.0.0",
+  "description": "PayPal Orders v2 API - Server-side Shipping Callback demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
